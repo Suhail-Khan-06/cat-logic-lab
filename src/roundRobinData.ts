@@ -70,8 +70,8 @@ const set3 = rrSet(3, '3–1–0 economy', 'Points / draws', [12, 13, 14, 15, 16
 set3.questions = [
   rrQ(set3.id, 12, 'In an 8-team round robin under 3–1–0, what is the maximum total number of points that could be distributed?', '84 points'),
   rrQ(set3.id, 13, 'In an 8-team round robin under 3–1–0, the total points distributed were 76. How many matches ended in draws?', '8 draws'),
-  rrQ(set3.id, 14, 'In a 6-team round robin under 3–1–0, Team P has 11 points from 5 matches. Find all possible W/D/L combinations.', '3W, 2D, 0L'),
-  rrQ(set3.id, 15, 'In an 8-team round robin under 3–1–0, is a total points figure of 83 possible? What about 84? What about 85?', '83: Yes; 84: Yes; 85: No'),
+  rrQ(set3.id, 14, 'In a 6-team round robin under 3–1–0, Team P has 11 points from 5 matches. Find all possible W/D/L combinations.', '3W, 2D, 0L', [], 'tita', { kind: 'records', labels: ['Wins', 'Draws', 'Losses'], rows: 1 }),
+  rrQ(set3.id, 15, 'In an 8-team round robin under 3–1–0, is a total points figure of 83 possible? What about 84? What about 85?', '83: Yes; 84: Yes; 85: No', [], 'tita', { kind: 'booleanFields', labels: ['83 possible?', '84 possible?', '85 possible?'], choices: ['Yes', 'No'] }),
   rrQ(set3.id, 16, 'In an 8-team round robin under 3–1–0, 6 matches ended in draws and the rest were decisive. What is the total points tally?', '78 points'),
 ];
 
@@ -116,14 +116,14 @@ set7.questions = [
 const set8 = rrSet(8, 'Live qualification', 'Qualification in progress', [46, 47]);
 set8.questions = [
   rrQ(set8.id, 46, 'Team C has 5 points with 2 matches remaining. The team currently in 4th place has 11 points and has completed all its matches. Can Team C qualify?', 'No'),
-  rrQ(set8.id, 47, 'Team D is currently 5th with 9 points and has 1 match remaining. The 4th-place team has 9 points and has finished all its matches. Team D plays Team E, who has 7 points and has also finished. What result(s) in Team D’s final match allow D to qualify?', 'Win or draw definitely qualifies; loss leaves a tie and therefore depends on the tie-break'),
+  rrQ(set8.id, 47, 'Team D is currently 5th with 9 points and has 1 match remaining. The 4th-place team has 9 points and has finished all its matches. Team D plays Team E, who has 7 points and has also finished. What result(s) in Team D’s final match allow D to qualify?', 'Win or draw definitely qualifies; loss leaves a tie and therefore depends on the tie-break', [], 'tita', { kind: 'booleanFields', labels: ['Win definitely qualifies?', 'Draw definitely qualifies?', 'Loss depends on tie-break?'], choices: ['Yes', 'No'] }),
 ];
 
 const set9 = rrSet(9, 'Can / Cannot / Must', 'Qualification possibility', [50, 51, 52], economy210);
 set9.questions = [
-  rrQ(set9.id, 50, 'In an 8-team round robin under 2–1–0, Team H finishes with 8 points.\na) Can Team H qualify for the top 4?\nb) Can Team H fail to qualify?\nc) Must Team H qualify?', 'a) Yes  b) Yes  c) No'),
-  rrQ(set9.id, 51, 'In an 8-team round robin under 2–1–0, Team I finishes with 13 points.\na) Can Team I fail to qualify?\nb) Must Team I finish 1st?', 'a) No  b) No'),
-  rrQ(set9.id, 52, 'In an 8-team round robin under 2–1–0, Team J finishes with 4 points.\na) Can Team J qualify?\nb) Must Team J fail to qualify?', 'a) Yes  b) No'),
+  rrQ(set9.id, 50, 'In an 8-team round robin under 2–1–0, Team H finishes with 8 points.\na) Can Team H qualify for the top 4?\nb) Can Team H fail to qualify?\nc) Must Team H qualify?', 'a) Yes  b) Yes  c) No', [], 'tita', { kind: 'booleanFields', labels: ['Can qualify?', 'Can fail to qualify?', 'Must qualify?'], choices: ['Yes', 'No'] }),
+  rrQ(set9.id, 51, 'In an 8-team round robin under 2–1–0, Team I finishes with 13 points.\na) Can Team I fail to qualify?\nb) Must Team I finish 1st?', 'a) No  b) No', [], 'tita', { kind: 'booleanFields', labels: ['Can fail to qualify?', 'Must finish 1st?'], choices: ['Yes', 'No'] }),
+  rrQ(set9.id, 52, 'In an 8-team round robin under 2–1–0, Team J finishes with 4 points.\na) Can Team J qualify?\nb) Must Team J fail to qualify?', 'a) Yes  b) No', [], 'tita', { kind: 'booleanFields', labels: ['Can qualify?', 'Must fail to qualify?'], choices: ['Yes', 'No'] }),
 ];
 
 export const roundRobinSets: SetData[] = [set1, set2, set3, set4, set5, set6, set7, set8, set9];

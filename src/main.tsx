@@ -83,6 +83,16 @@ function structuredMatches(q: Question, value: string) {
     const given = filled.map(r => r.map(c => +c).join('-')).sort();
     return given.length === expected.length && given.every((g, i) => g === expected[i]);
   }
+  if (st.kind === 'booleanFields') {
+    let expected: string[] = [];
+    if (q.id === 'round-robin-q47') {
+      // These three fields are a direct, structured representation of the existing source answer.
+      expected = ['Yes', 'Yes', 'Yes'];
+    } else {
+      expected = (q.answer.match(/(?:\b[a-z]\)|:)\s*(Yes|No)/gi) || []).map(x => x.match(/(Yes|No)/i)![1]);
+    }
+    return cells.length === expected.length && cells.every((c, i) => c === expected[i]);
+  }
   // 'fields': numbers in the answer key, in label order (e.g. "3 draws; 30 points" -> 3, 30).
   const expected = (q.answer.match(/\d+/g) || []).map(Number);
   return cells.length === expected.length && cells.every((c, i) => isInt(c) && +c === expected[i]);
@@ -118,6 +128,10 @@ function answerMatches(q: Question, value: string) {
   if (q.id === 'Q20') return /^(seed\s*)?8$/.test(v);
   if (q.id === 'Q21' && (v === 'seed 12 or 117' || v === '12 or 117' || v === '12/117')) return true;
   if (v === a) return true;
+  // Numeric TITA answers may be stored with a source unit (e.g. "78 points").
+  // Accept the bare numeric value when the source answer contains exactly one number.
+  const sourceNumbers = a.match(/\d+(?:\.\d+)?/g) || [];
+  if (/^\d+(?:\.\d+)?$/.test(v) && sourceNumbers.length === 1 && sourceNumbers[0] === v) return true;
   // Multi-value answers (e.g. "A, D or E", "Seed 12 or 117"): accept any order/separator.
   if (/,|\bor\b|\band\b|\//i.test(q.answer)) return answerTokens(value) === answerTokens(q.answer);
   return false;
@@ -245,6 +259,18 @@ function App() {
     setTestFinished(true);
   }
 
+  function finishPractice() {
+    const r: ResultData = { mode: 'practice', answers, submittedAt: Date.now(), elapsed: 0, chapterId: chapter.id };
+    const evaluated = evaluateAnswers(chapter, answers);
+    const wrongIds = evaluated.filter(x => x.status === 'incorrect').map(x => x.q.id);
+    const existingMistakes = new Set(chapterStore.mistakes);
+    wrongIds.forEach(id => existingMistakes.add(id));
+    evaluated.filter(x => x.status === 'correct').forEach(x => existingMistakes.delete(x.q.id));
+    updateChapterStore({ mistakes: [...existingMistakes], lastResult: r });
+    setResult(r);
+    setMode('results');
+  }
+
   function finalizeTest() {
     const total = chapter.questions.length * 60;
     const elapsed = testStart === null ? 0 : Math.min(total, Math.max(0, Math.floor((Date.now() - testStart) / 1000)));
@@ -312,6 +338,7 @@ function App() {
   if (!current) return null;
 
   const set = chapter.sets.find(s => s.id === current.setId)!;
+  const displayNumber = chapter.id === 'round-robin-master' ? chapter.questions.findIndex(q => q.id === current.id) + 1 : current.number;
   const isTest = mode === 'test';
   const isPractice = mode === 'practice' || mode === 'mistakes' || mode === 'bookmarks' || mode === 'retry';
   const infoOpen = openInfo[set.id] !== false;
@@ -339,7 +366,7 @@ function App() {
     </header>
     <main className="solver">
       <div className="solver-meta">
-        <div><span className="eyebrow">{isTest ? 'TIMED TEST' : mode === 'mistakes' ? 'MISTAKE BANK' : mode === 'bookmarks' ? 'BOOKMARKS' : mode === 'retry' ? 'RETRY INCORRECT' : 'PRACTICE'}</span><span className="set-label">Set {set.number} · Q{current.number}</span></div>
+        <div><span className="eyebrow">{isTest ? 'TIMED TEST' : mode === 'mistakes' ? 'MISTAKE BANK' : mode === 'bookmarks' ? 'BOOKMARKS' : mode === 'retry' ? 'RETRY INCORRECT' : 'PRACTICE'}</span><span className="set-label">Set {set.number} · Question {displayNumber}</span></div>
         <div className="question-counter">{index + 1} / {currentQuestions.length}{isTest && ` · ${answeredCount} answered`}</div>
       </div>
       <div className="progress-line"><span style={{ width: `${((index + 1) / currentQuestions.length) * 100}%` }}/></div>
@@ -356,7 +383,7 @@ function App() {
           </div>
         </aside>
         <section className="question-card">
-          <div className="q-number">Question {current.number}</div>
+          <div className="q-number">Question {displayNumber}</div>
           <h1>{current.questionText}</h1>
           {visuals.map(v => <div className="visual-wrap" key={v.id}><div className="visual-head"><span>{v.description}</span><button onClick={() => setZoomSrc(v.src)}>Enlarge</button></div><img src={v.src} alt={v.description} onClick={() => setZoomSrc(v.src)} /></div>)}
           {current.choices && <div className="statements">{current.options.map(o => <p key={o.label}><b>({o.label})</b>{o.text}</p>)}</div>}
@@ -374,12 +401,12 @@ function App() {
             <div className="footer-actions">
               {index > 0 && <button className="secondary" onClick={() => nav(-1)}><ArrowLeft size={16}/> Previous</button>}
               {isPractice && !isSubmitted && <button className="primary" disabled={!value.trim()} onClick={submitPractice}>Check answer</button>}
-              {index < currentQuestions.length - 1 ? <button className="primary" onClick={() => nav(1)}>Next <ArrowRight size={16}/></button> : isTest ? <button className="primary" onClick={() => finishTest()}>Submit test</button> : <button className="primary" onClick={() => setMode('chapter')}>Finish <Check size={16}/></button>}
+              {index < currentQuestions.length - 1 ? <button className="primary" onClick={() => nav(1)}>Next <ArrowRight size={16}/></button> : isTest ? <button className="primary" onClick={() => finishTest()}>Submit test</button> : <button className="primary" onClick={finishPractice}>Finish <Check size={16}/></button>}
             </div>
           </div>
         </section>
       </div>
-      <div className="navigator"><span>Question map</span><div>{currentQuestions.map((q, i) => <button key={q.id} aria-label={`Question ${q.number}${(answers[q.id] || '').trim() ? ', answered' : ''}${chapterStore.bookmarks.includes(q.id) ? ', bookmarked' : ''}`} aria-current={i === index ? 'true' : undefined} className={`${i === index ? 'active' : ''} ${(answers[q.id] || '').trim() ? 'answered' : ''} ${chapterStore.bookmarks.includes(q.id) ? 'marked' : ''}`} onClick={() => setIndex(i)}>{q.number}</button>)}</div></div>
+      <div className="navigator"><span>Question map</span><div>{currentQuestions.map((q, i) => <button key={q.id} aria-label={`Question ${chapter.id === 'round-robin-master' ? chapter.questions.findIndex(x => x.id === q.id) + 1 : q.number}${(answers[q.id] || '').trim() ? ', answered' : ''}${chapterStore.bookmarks.includes(q.id) ? ', bookmarked' : ''}`} aria-current={i === index ? 'true' : undefined} className={`${i === index ? 'active' : ''} ${(answers[q.id] || '').trim() ? 'answered' : ''} ${chapterStore.bookmarks.includes(q.id) ? 'marked' : ''}`} onClick={() => setIndex(i)}>{chapter.id === 'round-robin-master' ? chapter.questions.findIndex(x => x.id === q.id) + 1 : q.number}</button>)}</div></div>
     </main>
     {zoomSrc && <div className="modal" role="dialog" aria-modal="true" aria-label="Source image" onClick={() => setZoomSrc(null)}><div className="modal-inner" onClick={e => e.stopPropagation()}><button className="modal-close" aria-label="Close image" onClick={() => setZoomSrc(null)}><X size={18}/></button><img src={zoomSrc} alt="Original source page" /></div></div>}
   </div>;
@@ -392,7 +419,8 @@ function ChapterPicker({ chapters, onSelect }: { chapters: ChapterData[]; onSele
 
 function ChapterHome({ chapter, progress, mistakes, bookmarks, onHome, onPractice, onTest, onMistakes, onBookmarks }: { chapter: ChapterData; progress: number; mistakes: number; bookmarks: number; onHome: () => void; onPractice: () => void; onTest: () => void; onMistakes: () => void; onBookmarks: () => void }) {
   const practiced = Math.round(progress * chapter.questions.length / 100);
-  return <div className="home"><header className="home-header"><div className="brand-lockup"><span className="brand-mark large">CL</span><div><span className="eyebrow">PERSONAL CAT PREP</span><h1>CAT Logic Lab</h1></div></div><button className="chapter-chip chapter-switch" onClick={onHome}>All chapters</button></header><main className="home-main"><section className="hero"><div><span className="eyebrow">LOGICAL REASONING</span><h2>{chapter.title.includes(' & ')?<>{chapter.title.split(' & ')[0]} &amp;<br/><em>{chapter.title.split(' & ')[1]}</em></>:<><em>{chapter.title}</em></>}</h2><p>{chapter.description}. {chapter.questions.length} questions. Built for deliberate practice, clean review, and fast repetition.</p><div className="hero-actions"><button className="primary big" onClick={onPractice}>Practice <ArrowRight size={18}/></button><button className="secondary big" onClick={onTest}><TimerReset size={18}/> Timed test</button></div></div><div className="hero-note"><span>01</span><strong>{chapter.level}</strong><small>{chapter.sets.length} sets · {chapter.questions.length} questions</small></div></section><section className="dashboard-grid"><button className="stat-card action" onClick={onMistakes}><div><span className="eyebrow">MISTAKE BANK</span><strong>{mistakes}</strong><small>questions to revisit</small></div><RotateCcw size={20}/></button><button className="stat-card action" onClick={onBookmarks}><div><span className="eyebrow">BOOKMARKS</span><strong>{bookmarks}</strong><small>saved questions</small></div><Bookmark size={20}/></button><div className="stat-card"><span className="eyebrow">CHAPTER PROGRESS</span><div className="progress-number">{progress}%</div><div className="mini-bar"><span style={{ width: `${progress}%` }}/></div><small>{practiced} of {chapter.questions.length} practiced</small></div></section><section className="set-list"><div className="section-heading"><div><span className="eyebrow">THE CHAPTER</span><h3>{chapter.sets.length} problem sets</h3></div><span>{chapter.questions.length} questions</span></div><div className="sets">{chapter.sets.map(s => <div className="set-row" key={s.id}><span className="set-no">{String(s.number).padStart(2, '0')}</span><div><strong>{s.title}</strong><small>{s.questionNumbers ? `Questions ${s.questionNumbers.join(', ')}` : `Questions ${s.questionRange[0]}${s.questionRange[1] !== s.questionRange[0] ? `–${s.questionRange[1]}` : ''}`}</small></div><span className="set-topic">{s.topic}</span></div>)}</div></section></main></div>;
+  const displayQuestionNumber = (number: number) => chapter.id === 'round-robin-master' ? chapter.questions.findIndex(q => q.number === number) + 1 : number;
+  return <div className="home"><header className="home-header"><div className="brand-lockup"><span className="brand-mark large">CL</span><div><span className="eyebrow">PERSONAL CAT PREP</span><h1>CAT Logic Lab</h1></div></div><button className="chapter-chip chapter-switch" onClick={onHome}>All chapters</button></header><main className="home-main"><section className="hero"><div><span className="eyebrow">LOGICAL REASONING</span><h2>{chapter.title.includes(' & ')?<>{chapter.title.split(' & ')[0]} &amp;<br/><em>{chapter.title.split(' & ')[1]}</em></>:<><em>{chapter.title}</em></>}</h2><p>{chapter.description}. {chapter.questions.length} questions. Built for deliberate practice, clean review, and fast repetition.</p><div className="hero-actions"><button className="primary big" onClick={onPractice}>Practice <ArrowRight size={18}/></button><button className="secondary big" onClick={onTest}><TimerReset size={18}/> Timed test</button></div></div><div className="hero-note"><span>01</span><strong>{chapter.level}</strong><small>{chapter.sets.length} sets · {chapter.questions.length} questions</small></div></section><section className="dashboard-grid"><button className="stat-card action" onClick={onMistakes}><div><span className="eyebrow">MISTAKE BANK</span><strong>{mistakes}</strong><small>questions to revisit</small></div><RotateCcw size={20}/></button><button className="stat-card action" onClick={onBookmarks}><div><span className="eyebrow">BOOKMARKS</span><strong>{bookmarks}</strong><small>saved questions</small></div><Bookmark size={20}/></button><div className="stat-card"><span className="eyebrow">CHAPTER PROGRESS</span><div className="progress-number">{progress}%</div><div className="mini-bar"><span style={{ width: `${progress}%` }}/></div><small>{practiced} of {chapter.questions.length} practiced</small></div></section><section className="set-list"><div className="section-heading"><div><span className="eyebrow">THE CHAPTER</span><h3>{chapter.sets.length} problem sets</h3></div><span>{chapter.questions.length} questions</span></div><div className="sets">{chapter.sets.map(s => <div className="set-row" key={s.id}><span className="set-no">{String(s.number).padStart(2, '0')}</span><div><strong>{s.title}</strong><small>{s.questionNumbers ? `Questions ${s.questionNumbers.map(n => displayQuestionNumber(n)).join(', ')}` : `Questions ${s.questionRange[0]}${s.questionRange[1] !== s.questionRange[0] ? `–${s.questionRange[1]}` : ''}`}</small></div><span className="set-topic">{s.topic}</span></div>)}</div></section></main></div>;
 }
 
 function Results({ chapter, result, onHome, onRetryIncorrect }: { chapter: ChapterData; result: ResultData; onHome: () => void; onRetryIncorrect: () => void }) {
@@ -402,7 +430,7 @@ function Results({ chapter, result, onHome, onRetryIncorrect }: { chapter: Chapt
   const unanswered = rows.filter(r => r.status === 'unanswered').length;
   const label = { correct: 'Correct', incorrect: 'Incorrect', unanswered: 'Unanswered' } as const;
   const cls = { correct: 'ok', incorrect: 'bad', unanswered: 'na' } as const;
-  return <div className="results"><header className="topbar"><button className="brand-button" onClick={onHome}><span className="brand-mark">CL</span><span><b>CAT Logic Lab</b><small>{chapter.title} · {chapter.level}</small></span></button></header><main className="results-main"><span className="eyebrow">RESULTS</span><h1>{correct}<small> / {chapter.questions.length}</small></h1><p className="result-lead">{correct} correct · {incorrectCount} incorrect · {unanswered} unanswered</p><div className="result-stats"><div><span>Correct</span><b>{correct}</b></div><div><span>Incorrect</span><b>{incorrectCount}</b></div><div><span>Unanswered</span><b>{unanswered}</b></div><div><span>Time used</span><b>{formatTime(result.elapsed)}</b></div></div><div className="review-list"><div className="section-heading"><div><span className="eyebrow">REVIEW</span><h3>Question by question</h3></div></div>{rows.map(r => <div className={`review-row ${cls[r.status]}`} key={r.q.id}><span>Q{r.q.number}</span><span><strong>{r.status === 'unanswered' ? '—' : formatAnswer(r.q, r.v)}</strong><small>{r.status === 'unanswered' ? 'Not answered · ' : r.status === 'incorrect' ? 'Your answer is shown above · ' : ''}Correct answer: {r.q.answer}</small></span><span>{label[r.status]}</span></div>)}</div><div className="result-actions"><button className="secondary" onClick={onHome}>Back to chapter</button><button className="primary" disabled={incorrectCount === 0} onClick={onRetryIncorrect}>Retry incorrect{incorrectCount ? ` (${incorrectCount})` : ''}</button></div></main></div>;
+  return <div className="results"><header className="topbar"><button className="brand-button" onClick={onHome}><span className="brand-mark">CL</span><span><b>CAT Logic Lab</b><small>{chapter.title} · {chapter.level}</small></span></button></header><main className="results-main"><span className="eyebrow">RESULTS</span><h1>{correct}<small> / {chapter.questions.length}</small></h1><p className="result-lead">{correct} correct · {incorrectCount} incorrect · {unanswered} unanswered</p><div className="result-stats"><div><span>Correct</span><b>{correct}</b></div><div><span>Incorrect</span><b>{incorrectCount}</b></div><div><span>Unanswered</span><b>{unanswered}</b></div><div><span>Time used</span><b>{formatTime(result.elapsed)}</b></div></div><div className="review-list"><div className="section-heading"><div><span className="eyebrow">REVIEW</span><h3>Question by question</h3></div></div>{rows.map((r, i) => <div className={`review-row ${cls[r.status]}`} key={r.q.id}><span>Q{chapter.id === 'round-robin-master' ? i + 1 : r.q.number}</span><span><strong>{r.status === 'unanswered' ? '—' : formatAnswer(r.q, r.v)}</strong><small>{r.status === 'unanswered' ? 'Not answered · ' : r.status === 'incorrect' ? 'Your answer is shown above · ' : ''}Correct answer: {r.q.answer}</small></span><span>{label[r.status]}</span></div>)}</div><div className="result-actions"><button className="secondary" onClick={onHome}>Back to chapter</button><button className="primary" disabled={incorrectCount === 0} onClick={onRetryIncorrect}>Retry incorrect{incorrectCount ? ` (${incorrectCount})` : ''}</button></div></main></div>;
 }
 
 function StructuredInput({ q, value, disabled, onChange, onEnter }: { q: Question; value: string; disabled: boolean; onChange: (v: string) => void; onEnter: () => void }) {
@@ -411,25 +439,30 @@ function StructuredInput({ q, value, disabled, onChange, onEnter }: { q: Questio
   const total = rows * st.labels.length;
   const stored = parseCells(value) || [];
   const cells = Array.from({ length: total }, (_, i) => stored[i] || '');
-  // Store '' when every cell is blank so "answered" checks elsewhere keep working unchanged.
   const setCell = (i: number, v: string) => {
     const next = cells.slice();
-    next[i] = v.replace(/[^0-9]/g, '');
+    next[i] = v;
     onChange(next.some(c => c.trim()) ? JSON.stringify(next) : '');
   };
-  const input = (i: number, label: string, id: string) => <input id={id} inputMode="numeric" aria-label={label} value={cells[i]} disabled={disabled} autoComplete="off" placeholder="0" onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCell(i, e.target.value)} onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => { if (e.key === 'Enter') onEnter(); }} />;
+  const numericInput = (i: number, label: string, id: string) => <input id={id} inputMode="numeric" aria-label={label} value={cells[i]} disabled={disabled} autoComplete="off" placeholder="0" onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCell(i, e.target.value.replace(/[^0-9]/g, ''))} onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => { if (e.key === 'Enter') onEnter(); }} />;
   if (st.kind === 'records') {
     return <div className="tita structured" role="group" aria-label="Answer records">
-      <label>Enter all {rows} possible records (Wins · Draws · Losses). Order does not matter.</label>
-      {Array.from({ length: rows }, (_, r) => <div className="record-row" key={r}><span className="record-no">Record {r + 1}</span>{st.labels.map((l, c) => <div className="record-cell" key={l}><small>{l}</small>{input(r * st.labels.length + c, `Record ${r + 1} ${l}`, `st-${r}-${c}`)}</div>)}</div>)}
+      <label>Enter {rows > 1 ? `all ${rows} possible records` : 'the possible record'} (Wins · Draws · Losses). Order does not matter.</label>
+      {Array.from({ length: rows }, (_, r) => <div className="record-row" key={r}><span className="record-no">{rows > 1 ? `Record ${r + 1}` : 'Record'}</span>{st.labels.map((l, c) => <div className="record-cell" key={l}><small>{l}</small>{numericInput(r * st.labels.length + c, `${l}`, `st-${r}-${c}`)}</div>)}</div>)}
+    </div>;
+  }
+  if (st.kind === 'booleanFields') {
+    const choices = st.choices || ['Yes', 'No'];
+    return <div className="tita structured boolean-fields" role="group" aria-label="Answer fields">
+      <label>Select an answer for each statement.</label>
+      {st.labels.map((label, i) => <div className="boolean-row" key={label}><span>{label}</span><div className="boolean-options">{choices.map(choice => <button type="button" key={choice} disabled={disabled} className={cells[i] === choice ? 'selected' : ''} aria-pressed={cells[i] === choice} onClick={() => setCell(i, choice)}>{choice}</button>)}</div></div>)}
     </div>;
   }
   return <div className="tita structured" role="group" aria-label="Answer fields">
     <label>Enter both values</label>
-    <div className="record-row">{st.labels.map((l, c) => <div className="record-cell" key={l}><small>{l}</small>{input(c, l, `st-${c}`)}</div>)}</div>
+    <div className="record-row">{st.labels.map((l, c) => <div className="record-cell" key={l}><small>{l}</small>{numericInput(c, l, `st-${c}`)}</div>)}</div>
   </div>;
 }
-
 function EmptyState({ mode, chapter, onHome }: { mode: Mode; chapter: ChapterData; onHome: () => void }) {
   return <div className="empty"><span className="brand-mark large">CL</span><span className="eyebrow">{mode === 'mistakes' ? 'MISTAKE BANK' : 'BOOKMARKS'}</span><h1>Nothing here yet.</h1><p>No {mode === 'mistakes' ? 'mistakes' : 'bookmarks'} in {chapter.title} yet. {mode === 'mistakes' ? 'Questions you answer incorrectly in Practice are collected here.' : 'Tap the bookmark icon on any question to save it here.'}</p><button className="primary" onClick={onHome}>Back to chapter</button></div>;
 }
