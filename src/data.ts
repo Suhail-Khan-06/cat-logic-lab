@@ -7,6 +7,10 @@ export type Question = {
   answer:string; answerType:'mc'|'tita'; sourcePage:string; visualRequired:boolean; visualIds?:string[];
   // Data Sufficiency only: `options` holds Statements A/B; `choices` holds the selectable (a)-(d) answer choices.
   choices?:Option[];
+  // Structured TITA answers (Round Robin Q8/Q11). The value is stored in `answers` as a JSON array of cell strings;
+  // the expected values are parsed from `answer`, so `answer` stays the single source of truth.
+  // 'records' = `rows` rows of `labels` cells (W/D/L records, order-independent); 'fields' = one cell per label, in order.
+  structured?:{ kind:'records'|'fields'; labels:string[]; rows?:number };
 };
 export type Visual = { id:string; type:'table'|'diagram'; sourcePage:string; src:string; description:string };
 export type SetData = { id:string; number:number; title:string; topic:string; questionRange:[number,number]; directions:string; commonInformation:string; sourcePages:string[]; visuals?:Visual[]; questions:Question[]; questionNumbers?:number[] };

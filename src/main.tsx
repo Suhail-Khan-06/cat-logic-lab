@@ -60,8 +60,57 @@ function answerTokens(s: string) {
   return s.toLowerCase().replace(/₹/g, '').split(/[\s,/&]+|\bor\b|\band\b|\bseed\b/).map(t => t.trim()).filter(Boolean).sort().join('|');
 }
 
+// Structured answers (Round Robin Q8/Q11) are stored as a JSON array of cell strings.
+function parseCells(value: string): string[] | null {
+  try { const c = JSON.parse(value); return Array.isArray(c) && c.every(x => typeof x === 'string') ? c : null; } catch { return null; }
+}
+function structuredRows(q: Question, cells: string[]) {
+  const n = q.structured!.labels.length;
+  const rows: string[][] = [];
+  for (let i = 0; i < cells.length; i += n) rows.push(cells.slice(i, i + n));
+  return rows;
+}
+function structuredMatches(q: Question, value: string) {
+  const st = q.structured!;
+  const cells = parseCells(value);
+  if (!cells) return false;
+  const isInt = (c: string) => /^\d+$/.test(c.trim());
+  if (st.kind === 'records') {
+    // Expected records are parsed from the answer key text, e.g. "(5W,0D,2L), (4W,2D,1L), (3W,4D,0L)".
+    const expected = [...q.answer.matchAll(/\((\d+)W,\s*(\d+)D,\s*(\d+)L\)/g)].map(m => `${+m[1]}-${+m[2]}-${+m[3]}`).sort();
+    const filled = structuredRows(q, cells).filter(r => r.some(c => c.trim()));
+    if (filled.some(r => !r.every(isInt))) return false;
+    const given = filled.map(r => r.map(c => +c).join('-')).sort();
+    return given.length === expected.length && given.every((g, i) => g === expected[i]);
+  }
+  // 'fields': numbers in the answer key, in label order (e.g. "3 draws; 30 points" -> 3, 30).
+  const expected = (q.answer.match(/\d+/g) || []).map(Number);
+  return cells.length === expected.length && cells.every((c, i) => isInt(c) && +c === expected[i]);
+}
+// Human-readable form of a stored answer for the review screen.
+function formatAnswer(q: Question, value: string) {
+  if (!q.structured) return value;
+  const cells = parseCells(value);
+  if (!cells) return value;
+  if (q.structured.kind === 'records') {
+    const rows = structuredRows(q, cells).filter(r => r.some(c => c.trim()));
+    return rows.map(r => `(${r[0] || '?'}W, ${r[1] || '?'}D, ${r[2] || '?'}L)`).join(', ');
+  }
+  return q.structured.labels.map((l, i) => `${l}: ${(cells[i] || '').trim() || '?'}`).join('; ');
+}
+
+// Single evaluation path used by Results and Retry Incorrect (and therefore by manual submit and timer expiry).
+type Evaluated = { q: Question; v: string; status: 'correct' | 'incorrect' | 'unanswered' };
+function evaluateAnswers(chapter: ChapterData, answers: Record<string, string>): Evaluated[] {
+  return chapter.questions.map(q => {
+    const v = answers[q.id] || '';
+    return { q, v, status: !v.trim() ? 'unanswered' : answerMatches(q, v) ? 'correct' : 'incorrect' };
+  });
+}
+
 function answerMatches(q: Question, value: string) {
   if (!value.trim()) return false;
+  if (q.structured) return structuredMatches(q, value);
   const v = normalize(value);
   const a = normalize(q.answer);
   if (q.answerType === 'mc') return v === a;
@@ -250,9 +299,7 @@ function App() {
       result={result}
       onHome={() => setMode('chapter')}
       onRetryIncorrect={() => {
-        const ids = Object.entries(result.answers)
-          .filter(([id, v]) => v.trim() && !answerMatches(chapter.questions.find(q => q.id === id)!, v))
-          .map(([id]) => id);
+        const ids = evaluateAnswers(chapter, result.answers).filter(r => r.status === 'incorrect').map(r => r.q.id);
         if (!ids.length) { setMode('chapter'); return; }
         startPractice(ids);
       }}
@@ -313,7 +360,7 @@ function App() {
           <h1>{current.questionText}</h1>
           {visuals.map(v => <div className="visual-wrap" key={v.id}><div className="visual-head"><span>{v.description}</span><button onClick={() => setZoomSrc(v.src)}>Enlarge</button></div><img src={v.src} alt={v.description} onClick={() => setZoomSrc(v.src)} /></div>)}
           {current.choices && <div className="statements">{current.options.map(o => <p key={o.label}><b>({o.label})</b>{o.text}</p>)}</div>}
-          {current.answerType === 'mc' ? <div className="options" role="group" aria-label="Answer options">{optionList.map(o => {
+          {current.structured ? <StructuredInput key={current.id} q={current} value={value} disabled={isSubmitted && isPractice} onChange={v => setAnswers(a => ({ ...a, [current.id]: v }))} onEnter={() => { if (isPractice && !isSubmitted && value.trim()) submitPractice(); }} /> : current.answerType === 'mc' ? <div className="options" role="group" aria-label="Answer options">{optionList.map(o => {
             const selected = value === o.label;
             const correct = isSubmitted && o.label === current.answer;
             const wrong = isSubmitted && selected && !correct;
@@ -349,11 +396,38 @@ function ChapterHome({ chapter, progress, mistakes, bookmarks, onHome, onPractic
 }
 
 function Results({ chapter, result, onHome, onRetryIncorrect }: { chapter: ChapterData; result: ResultData; onHome: () => void; onRetryIncorrect: () => void }) {
-  const rows = chapter.questions.map(q => ({ q, v: result.answers[q.id] || '', ok: answerMatches(q, result.answers[q.id] || '') }));
-  const correct = rows.filter(r => r.ok).length;
-  const answered = rows.filter(r => r.v.trim()).length;
-  const incorrectCount = answered - correct;
-  return <div className="results"><header className="topbar"><button className="brand-button" onClick={onHome}><span className="brand-mark">CL</span><span><b>CAT Logic Lab</b><small>{chapter.title} · {chapter.level}</small></span></button></header><main className="results-main"><span className="eyebrow">RESULTS</span><h1>{correct}<small> / {chapter.questions.length}</small></h1><p className="result-lead">{correct} correct · {answered - correct} incorrect · {chapter.questions.length - answered} unanswered</p><div className="result-stats"><div><span>Correct</span><b>{correct}</b></div><div><span>Incorrect</span><b>{answered - correct}</b></div><div><span>Unanswered</span><b>{chapter.questions.length - answered}</b></div><div><span>Time used</span><b>{formatTime(result.elapsed)}</b></div></div><div className="review-list"><div className="section-heading"><div><span className="eyebrow">REVIEW</span><h3>Question by question</h3></div></div>{rows.map(r => <div className={`review-row ${r.ok ? 'ok' : 'bad'}`} key={r.q.id}><span>Q{r.q.number}</span><span><strong>{r.v.trim() ? r.v : '—'}</strong>{!r.ok && <small>Answer: {r.q.answer}</small>}</span><span>{r.v.trim() ? (r.ok ? 'Correct' : 'Incorrect') : 'Unanswered'}</span></div>)}</div><div className="result-actions"><button className="secondary" onClick={onHome}>Back to chapter</button><button className="primary" disabled={incorrectCount === 0} onClick={onRetryIncorrect}>Retry incorrect{incorrectCount ? ` (${incorrectCount})` : ''}</button></div></main></div>;
+  const rows = evaluateAnswers(chapter, result.answers);
+  const correct = rows.filter(r => r.status === 'correct').length;
+  const incorrectCount = rows.filter(r => r.status === 'incorrect').length;
+  const unanswered = rows.filter(r => r.status === 'unanswered').length;
+  const label = { correct: 'Correct', incorrect: 'Incorrect', unanswered: 'Unanswered' } as const;
+  const cls = { correct: 'ok', incorrect: 'bad', unanswered: 'na' } as const;
+  return <div className="results"><header className="topbar"><button className="brand-button" onClick={onHome}><span className="brand-mark">CL</span><span><b>CAT Logic Lab</b><small>{chapter.title} · {chapter.level}</small></span></button></header><main className="results-main"><span className="eyebrow">RESULTS</span><h1>{correct}<small> / {chapter.questions.length}</small></h1><p className="result-lead">{correct} correct · {incorrectCount} incorrect · {unanswered} unanswered</p><div className="result-stats"><div><span>Correct</span><b>{correct}</b></div><div><span>Incorrect</span><b>{incorrectCount}</b></div><div><span>Unanswered</span><b>{unanswered}</b></div><div><span>Time used</span><b>{formatTime(result.elapsed)}</b></div></div><div className="review-list"><div className="section-heading"><div><span className="eyebrow">REVIEW</span><h3>Question by question</h3></div></div>{rows.map(r => <div className={`review-row ${cls[r.status]}`} key={r.q.id}><span>Q{r.q.number}</span><span><strong>{r.status === 'unanswered' ? '—' : formatAnswer(r.q, r.v)}</strong><small>{r.status === 'unanswered' ? 'Not answered · ' : r.status === 'incorrect' ? 'Your answer is shown above · ' : ''}Correct answer: {r.q.answer}</small></span><span>{label[r.status]}</span></div>)}</div><div className="result-actions"><button className="secondary" onClick={onHome}>Back to chapter</button><button className="primary" disabled={incorrectCount === 0} onClick={onRetryIncorrect}>Retry incorrect{incorrectCount ? ` (${incorrectCount})` : ''}</button></div></main></div>;
+}
+
+function StructuredInput({ q, value, disabled, onChange, onEnter }: { q: Question; value: string; disabled: boolean; onChange: (v: string) => void; onEnter: () => void }) {
+  const st = q.structured!;
+  const rows = st.kind === 'records' ? (st.rows || 1) : 1;
+  const total = rows * st.labels.length;
+  const stored = parseCells(value) || [];
+  const cells = Array.from({ length: total }, (_, i) => stored[i] || '');
+  // Store '' when every cell is blank so "answered" checks elsewhere keep working unchanged.
+  const setCell = (i: number, v: string) => {
+    const next = cells.slice();
+    next[i] = v.replace(/[^0-9]/g, '');
+    onChange(next.some(c => c.trim()) ? JSON.stringify(next) : '');
+  };
+  const input = (i: number, label: string, id: string) => <input id={id} inputMode="numeric" aria-label={label} value={cells[i]} disabled={disabled} autoComplete="off" placeholder="0" onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCell(i, e.target.value)} onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => { if (e.key === 'Enter') onEnter(); }} />;
+  if (st.kind === 'records') {
+    return <div className="tita structured" role="group" aria-label="Answer records">
+      <label>Enter all {rows} possible records (Wins · Draws · Losses). Order does not matter.</label>
+      {Array.from({ length: rows }, (_, r) => <div className="record-row" key={r}><span className="record-no">Record {r + 1}</span>{st.labels.map((l, c) => <div className="record-cell" key={l}><small>{l}</small>{input(r * st.labels.length + c, `Record ${r + 1} ${l}`, `st-${r}-${c}`)}</div>)}</div>)}
+    </div>;
+  }
+  return <div className="tita structured" role="group" aria-label="Answer fields">
+    <label>Enter both values</label>
+    <div className="record-row">{st.labels.map((l, c) => <div className="record-cell" key={l}><small>{l}</small>{input(c, l, `st-${c}`)}</div>)}</div>
+  </div>;
 }
 
 function EmptyState({ mode, chapter, onHome }: { mode: Mode; chapter: ChapterData; onHome: () => void }) {

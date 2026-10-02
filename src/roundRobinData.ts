@@ -1,5 +1,7 @@
 import type { ChapterData, Option, Question, SetData } from './data';
 
+type Structured = NonNullable<Question['structured']>;
+
 const rrMc = (label: string, text: string): Option => ({ label, text });
 const RR_SOURCE = 'User-provided Round Robin master set';
 
@@ -10,6 +12,7 @@ const rrQ = (
   answer: string,
   options: Option[] = [],
   answerType: 'mc' | 'tita' = 'tita',
+  structured?: Structured,
 ): Question => ({
   id: `round-robin-q${number}`,
   number,
@@ -20,6 +23,7 @@ const rrQ = (
   sourcePage: RR_SOURCE,
   answerType,
   visualRequired: false,
+  ...(structured ? { structured } : {}),
 });
 
 const rrSet = (
@@ -57,8 +61,8 @@ set1.questions = [
 const set2 = rrSet(2, '2–1–0 point economy', 'Points / draws', [6, 8, 11, 20], economy210);
 set2.questions = [
   rrQ(set2.id, 6, 'Eight teams play a round robin under the 2–1–0 system. What is the total number of points distributed across all teams?', '56 points'),
-  rrQ(set2.id, 8, 'In an 8-team round robin under 2–1–0, Team X finishes with 10 points from 7 matches. Find all possible W/D/L combinations.', '(5W,0D,2L), (4W,2D,1L), (3W,4D,0L)'),
-  rrQ(set2.id, 11, 'In a 6-team round robin under 2–1–0, each team played exactly one draw in the entire tournament. How many draw matches occurred, and what is the total number of points distributed?', '3 draws; 30 points'),
+  rrQ(set2.id, 8, 'In an 8-team round robin under 2–1–0, Team X finishes with 10 points from 7 matches. Find all possible W/D/L combinations.', '(5W,0D,2L), (4W,2D,1L), (3W,4D,0L)', [], 'tita', { kind: 'records', labels: ['Wins', 'Draws', 'Losses'], rows: 3 }),
+  rrQ(set2.id, 11, 'In a 6-team round robin under 2–1–0, each team played exactly one draw in the entire tournament. How many draw matches occurred, and what is the total number of points distributed?', '3 draws; 30 points', [], 'tita', { kind: 'fields', labels: ['Number of draws', 'Total points'] }),
   rrQ(set2.id, 20, 'In a 6-team round robin under 2–1–0, there are 7 draws. The draw counts of the six teams are 3, 3, 2, 2, 2, 2. Is this feasible?', 'Feasible'),
 ];
 
